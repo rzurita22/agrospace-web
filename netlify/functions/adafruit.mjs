@@ -132,14 +132,40 @@ export default async (request) => {
 
       if (!feeds.length) throw new Error("No se indicaron feeds");
 
-      const resultados = await Promise.all(
-        feeds.map(async feed => [feed, await latest(username, key, feed)])
+      const allFeedsUrl =
+        "https://io.adafruit.com/api/v2/" +
+        encodeURIComponent(username) +
+        "/feeds";
+
+      const lista = await adafruitFetch(allFeedsUrl, key);
+      const porKey = new Map(
+        (Array.isArray(lista) ? lista : []).map(item => [String(item.key || ""), item])
       );
+
+      const data = {};
+      for (const feed of feeds) {
+        const item = porKey.get(feed);
+        if (!item) {
+          data[feed] = null;
+          continue;
+        }
+
+        const last = item.details?.last || item.last || null;
+        const value = last?.value ?? item.last_value ?? null;
+        const created_at = last?.created_at || item.updated_at || null;
+        const id = last?.id || null;
+
+        data[feed] = value === null ? null : {
+          id,
+          value:String(value),
+          created_at
+        };
+      }
 
       return json({
         ok:true,
-        data:Object.fromEntries(resultados),
-        source:"adafruit-parallel"
+        data,
+        source:"adafruit-all-feeds"
       });
     }
 
