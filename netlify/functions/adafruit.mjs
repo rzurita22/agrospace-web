@@ -44,10 +44,10 @@ async function latest(username, key, feed) {
     encodeURIComponent(username) +
     "/feeds/" +
     encodeURIComponent(feed) +
-    "/data?limit=1";
+    "/data/last";
 
-  const datos = await adafruitFetch(url, key);
-  return Array.isArray(datos) && datos.length ? datos[0] : null;
+  const dato = await adafruitFetch(url, key);
+  return dato && typeof dato === "object" ? dato : null;
 }
 
 async function history(username, key, feed, start, end) {
