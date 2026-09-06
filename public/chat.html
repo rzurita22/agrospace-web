@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>METEOX IA</title>
+  <style>
+    :root{color-scheme:dark;--bg:#06111f;--panel:#0d1d30;--line:#21415d;--text:#edf7ff;--muted:#8eabc1;--cyan:#31d7c5;--blue:#2078dc}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0}
+    body{font-family:Arial,sans-serif;background:radial-gradient(circle at top right,#123653 0,transparent 38%),var(--bg);color:var(--text)}
+    .app{height:100%;max-width:760px;margin:auto;display:flex;flex-direction:column;padding:12px;gap:10px}
+    header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:16px;background:rgba(13,29,48,.9)}
+    .brand{display:flex;gap:10px;align-items:center}.logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,var(--cyan),var(--blue));font-size:22px}
+    h1{font-size:16px;margin:0}.sub{font-size:11px;color:var(--muted);margin-top:3px}
+    .dashboard{color:var(--cyan);font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+    #mensajes{flex:1;overflow:auto;padding:8px 2px;display:flex;flex-direction:column;gap:10px}
+    .mensaje{max-width:85%;padding:11px 13px;border-radius:15px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
+    .bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+    .user{align-self:flex-end;background:linear-gradient(135deg,#176a83,#1767bb)}
+    .rapidas{display:flex;gap:7px;overflow:auto;padding-bottom:2px}
+    button{border:0;color:white;font:inherit;cursor:pointer}
+    .rapidas button{flex:none;padding:8px 11px;border-radius:999px;background:#10263b;border:1px solid var(--line);font-size:12px}
+    .entrada{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px;border:1px solid var(--line);border-radius:16px;background:var(--panel);margin-bottom:env(safe-area-inset-bottom)}
+    textarea{resize:none;max-height:130px;min-height:42px;border:0;outline:0;background:transparent;color:var(--text);font:inherit;padding:10px}
+    #enviar{width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,var(--cyan),var(--blue));font-size:19px}
+    #enviar:disabled{opacity:.45}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand"><div class="logo">✦</div><div><h1>METEOX IA</h1><div class="sub">Asistente Agrospace</div></div></div>
+      <a class="dashboard" href="/">Ver dashboard</a>
+    </header>
+    <section id="mensajes" aria-live="polite">
+      <div class="mensaje bot">Hola. Puedo consultar los sensores y controlar el riego.</div>
+    </section>
+    <div class="rapidas">
+      <button onclick="consultaRapida('Cual es el estado actual del sistema?')">Estado</button>
+      <button onclick="consultaRapida('Cual es la humedad del suelo?')">Humedad</button>
+      <button onclick="consultaRapida('Dame el pronóstico extendido de los próximos 7 días')">Pronóstico 7 días</button>
+      <button onclick="consultaRapida('Apaga la bomba')">Apagar bomba</button>
+    </div>
+    <div class="entrada">
+      <textarea id="entrada" rows="1" placeholder="Escribile a METEOX..."></textarea>
+      <button id="enviar" onclick="enviarMensaje()" aria-label="Enviar">➤</button>
+    </div>
+  </main>
+  <script>
+    var responseId = null;
+    var enviando = false;
+    var tokenAcceso = sessionStorage.getItem("agrospace.token.acceso") || "";
+
+    async function ejecutarServidor(nombre, args) {
+      const response = await fetch("/api/apps-script", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          funcion:nombre,
+          args:args || [],
+          token:sessionStorage.getItem("agrospace.token.acceso") || ""
+        })
+      });
+      let payload;
+      try { payload = await response.json(); }
+      catch (_) { throw new Error("El backend devolvio una respuesta invalida"); }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || `Backend HTTP ${response.status}`);
+      return payload.resultado;
+    }
+
+    function agregarMensaje(texto, tipo) {
+      var contenedor = document.getElementById("mensajes");
+      var elemento = document.createElement("div");
+      elemento.className = "mensaje " + tipo;
+      elemento.textContent = texto;
+      contenedor.appendChild(elemento);
+      contenedor.scrollTop = contenedor.scrollHeight;
+      return elemento;
+    }
+
+    async function autenticar() {
+      if (tokenAcceso) {
+        try { await ejecutarServidor("verificarSesionAgrospace", [tokenAcceso]); return true; }
+        catch (_) { tokenAcceso=""; sessionStorage.removeItem("agrospace.token.acceso"); }
+      }
+      var clave = window.prompt("Contraseña de acceso a METEOX IA:");
+      if (clave === null) return false;
+      try {
+        var sesion = await ejecutarServidor("iniciarSesionAgrospace", [clave]);
+        tokenAcceso = sesion.token;
+        sessionStorage.setItem("agrospace.token.acceso", tokenAcceso);
+        return true;
+      } catch (error) {
+        alert(error.message || String(error));
+        return false;
+      }
+    }
+
+    async function enviarMensaje() {
+      if (enviando) return;
+      if (!await autenticar()) return;
+      var entrada = document.getElementById("entrada");
+      var mensaje = entrada.value.trim();
+      if (!mensaje) return;
+      entrada.value = "";
+      agregarMensaje(mensaje, "user");
+      var espera = agregarMensaje("Consultando METEOX...", "bot");
+      enviando = true;
+      document.getElementById("enviar").disabled = true;
+      try {
+        var respuesta = await ejecutarServidor("chatMeteoxServidor", [mensaje, responseId, tokenAcceso]);
+        espera.remove();
+        if (!respuesta || !respuesta.ok) throw new Error(respuesta && respuesta.error ? respuesta.error : "Respuesta vacia");
+        responseId = respuesta.responseId || responseId;
+        agregarMensaje(respuesta.texto || "Operacion completada.", "bot");
+      } catch (error) {
+        espera.textContent = "Error: " + error.message;
+      } finally {
+        enviando = false;
+        document.getElementById("enviar").disabled = false;
+        entrada.focus();
+      }
+    }
+
+    function consultaRapida(texto) {
+      document.getElementById("entrada").value = texto;
+      enviarMensaje();
+    }
+
+    document.getElementById("entrada").addEventListener("keydown", function(evento) {
+      if (evento.key === "Enter" && !evento.shiftKey) {
+        evento.preventDefault();
+        enviarMensaje();
+      }
+    });
+    autenticar();
+  </script>
+</body>
+</html>
