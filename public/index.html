@@ -4080,10 +4080,24 @@ async function leerUltimoDato(feed, forzar=false)
         const cacheado = datoCacheadoAdafruit(feed);
         if(cacheado) return cacheado;
     }
-    const payload = await adafruitApi({mode:'latest', feed});
-    const dato = payload.data || null;
-    if(dato) cacheTelemetria[feed] = dato;
-    return dato;
+
+    try {
+        const payload = await adafruitApi({mode:'latest', feed});
+        const dato = payload.data || null;
+        if(dato) {
+            cacheTelemetria[feed] = dato;
+            return dato;
+        }
+    } catch(error) {
+        console.warn("Lectura directa Adafruit fallo para " + feed + ". Uso fallback Apps Script.", error);
+    }
+
+    try {
+        return await llamarAppsScript("leerUltimoDatoServidor", feed);
+    } catch(error) {
+        console.error("Tambien fallo fallback Apps Script para " + feed, error);
+        return null;
+    }
 }
 
 
@@ -4220,14 +4234,20 @@ async function leerHistorico(feed, inicio, fin)
         0;
 
     {
-        const payload = await adafruitApi({
-            mode:'history',
-            feed,
-            start:inicio.toISOString(),
-            end:fin.toISOString()
-        });
-        todos = Array.isArray(payload.data) ? payload.data : [];
-        paginas = 60;
+        try {
+            const payload = await adafruitApi({
+                mode:'history',
+                feed,
+                start:inicio.toISOString(),
+                end:fin.toISOString()
+            });
+            todos = Array.isArray(payload.data) ? payload.data : [];
+            paginas = 60;
+        } catch(error) {
+            console.warn("Historico directo Adafruit fallo para " + feed + ". Uso fallback Apps Script.", error);
+            todos = await llamarAppsScript("leerHistoricoServidor", feed, inicio.toISOString(), fin.toISOString());
+            paginas = 60;
+        }
     }
 
     while(paginas < 60)
