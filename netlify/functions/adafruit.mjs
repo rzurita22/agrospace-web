@@ -82,6 +82,27 @@ async function history(username, key, feed, start, end) {
   });
 }
 
+
+async function gasLatest(feed) {
+  const gasUrl = Netlify.env.get("GAS_WEB_APP_URL") || Netlify.env.get("APPS_SCRIPT_URL");
+  if (!gasUrl) return null;
+  const response = await fetch(gasUrl, {
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify({
+      accion:"rpc",
+      funcion:"leerUltimoDatoServidor",
+      args:[feed],
+      token:""
+    }),
+    redirect:"follow"
+  });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  if (!payload || !payload.ok) return null;
+  return payload.resultado || null;
+}
+
 export default async (request) => {
   if (request.method !== "GET") return json({ok:false,error:"Metodo no permitido"}, 405);
 
@@ -101,20 +122,40 @@ export default async (request) => {
         .split(",").map(x => x.trim()).filter(Boolean).map(validarFeed))];
       if (!feeds.length) throw new Error("No se indicaron feeds");
       const errores = {};
+      const origen = {};
       const resultados = await Promise.all(feeds.map(async feed => {
         try {
-          return [feed, await latest(username,key,feed)];
+          const dato = await latest(username,key,feed);
+          if (dato) {
+            origen[feed] = "adafruit";
+            return [feed, dato];
+          }
         } catch (error) {
           errores[feed] = String(error?.message || error);
-          return [feed, null];
         }
+
+        try {
+          const datoGas = await gasLatest(feed);
+          if (datoGas) {
+            origen[feed] = "apps-script";
+            return [feed, datoGas];
+          }
+        } catch (error) {
+          errores[feed] = (errores[feed] ? errores[feed] + " | " : "") +
+            "GAS: " + String(error?.message || error);
+        }
+
+        origen[feed] = "sin-datos";
+        return [feed, null];
       }));
+
       return json({
         ok:true,
         data:Object.fromEntries(resultados),
         diagnostic:{
           usernameConfigured:Boolean(username),
           keyConfigured:Boolean(key),
+          source:origen,
           errors:errores
         }
       }, 200, "no-store");
