@@ -16,3 +16,5 @@
   from = "/chat"
   to = "/chat.html"
   status = 200
+
+# deploy-trigger: direct-telemetry
