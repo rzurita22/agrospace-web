@@ -24,9 +24,16 @@ function validarFeed(feed) {
 }
 
 async function adafruitFetch(url, key) {
-  const response = await fetch(url, {
-    headers: { "X-AIO-Key": key, "Accept": "application/json" }
-  });
+  const hacerFetch = async (usarKey) => {
+    const headers = { "Accept": "application/json" };
+    if (usarKey && key) headers["X-AIO-Key"] = key;
+    return fetch(url, { headers });
+  };
+
+  let response = await hacerFetch(true);
+  if (!response.ok && key) {
+    response = await hacerFetch(false);
+  }
   if (!response.ok) {
     const texto = await response.text().catch(() => "");
     throw new Error(`Adafruit ${response.status}${texto ? `: ${texto.slice(0,180)}` : ""}`);
@@ -93,14 +100,24 @@ export default async (request) => {
       const feeds = [...new Set((url.searchParams.get("feeds") || "")
         .split(",").map(x => x.trim()).filter(Boolean).map(validarFeed))];
       if (!feeds.length) throw new Error("No se indicaron feeds");
+      const errores = {};
       const resultados = await Promise.all(feeds.map(async feed => {
         try {
           return [feed, await latest(username,key,feed)];
-        } catch (_) {
+        } catch (error) {
+          errores[feed] = String(error?.message || error);
           return [feed, null];
         }
       }));
-      return json({ok:true,data:Object.fromEntries(resultados)}, 200, "no-store");
+      return json({
+        ok:true,
+        data:Object.fromEntries(resultados),
+        diagnostic:{
+          usernameConfigured:Boolean(username),
+          keyConfigured:Boolean(key),
+          errors:errores
+        }
+      }, 200, "no-store");
     }
 
     if (mode === "history") {
