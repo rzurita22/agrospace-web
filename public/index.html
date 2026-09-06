@@ -3113,7 +3113,8 @@ let estadoActualAlertas = {};
 
 function appsScriptDisponible()
 {
-    return true;
+    // Apps Script retirado del runtime normal: evitamos volver a consumir UrlFetchApp.
+    return false;
 }
 
 async function llamarAppsScript(funcion, ...args)
