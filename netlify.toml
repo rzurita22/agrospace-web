@@ -3,6 +3,11 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "/api/adafruit"
+  to = "/.netlify/functions/adafruit"
+  status = 200
+
+[[redirects]]
   from = "/api/apps-script"
   to = "/.netlify/functions/apps-script"
   status = 200
