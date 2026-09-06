@@ -5849,8 +5849,6 @@ async function actualizarDashboard()
         cacheTelemetria = Object.create(null);
     }
 
-    await completarFaltantesConAppsScript(feedsDashboard);
-
     const datoWS90 = cacheTelemetria.ws90 || null;
     if(datoWS90) {
         registrarActualizacionEsp32(datoWS90.created_at);
@@ -6317,7 +6315,7 @@ async function obtenerEstadoBomba()
 {
     try
     {
-        const d = await leerUltimoDato(FEED_ESTADO, true);
+        const d = cacheTelemetria[FEED_ESTADO] || await leerUltimoDato(FEED_ESTADO);
         const response = {ok:true, json:async () => d ? [d] : []};
 
         if(!response.ok) return;
@@ -6664,8 +6662,8 @@ aplicarVistaWidgetsGuardada();
 inicializarArrastreWidgets();
 aplicarSeleccionWidgets(widgetsVisiblesGuardados());
 actualizarDashboard();
-obtenerEstadoBomba();
-actualizarAcumuladoCaudalHoy();
+setTimeout(obtenerEstadoBomba, 1200);
+setTimeout(actualizarAcumuladoCaudalHoy, 15000);
 
 // Telemetria actual cada 10 s; estado de bomba cada 5 s.
 // El acumulado diario usa historico y se recalcula solo cada 60 s.
