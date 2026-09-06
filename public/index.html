@@ -5799,7 +5799,7 @@ function crearWindguruStrip(datosDireccion, periodo)
 async function actualizarDashboard()
 {
     try {
-        await refrescarBatchAdafruit(["ws90","wh51","esp32","presion","wfc01","bomba"]);
+        await refrescarBatchAdafruit(["ws90","wh51","esp32","presion","wfc01"]);
     } catch(error) {
         console.error("No se pudo actualizar la telemetria en lote:", error);
     }
