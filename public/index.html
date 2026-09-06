@@ -5841,7 +5841,7 @@ function crearWindguruStrip(datosDireccion, periodo)
 
 async function actualizarDashboard()
 {
-    const feedsDashboard = ["ws90","wh51","esp32","presion","wfc01"];
+    const feedsDashboard = ["ws90","wh51","esp32","wfc01"];
     try {
         await refrescarBatchAdafruit(feedsDashboard);
     } catch(error) {
