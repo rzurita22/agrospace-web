@@ -6,7 +6,7 @@ const READ_FEEDS = new Set([
 ]);
 const WRITE_FEEDS = new Set(["bomba-comando","config"]);
 const ENSURE_FEEDS = new Set(["bomba-comando","bomba-ack","config","config-ack","esp32"]);
-const STORE = getStore("agrospace-backend", { consistency: "strong" });
+function store(){ return getStore("agrospace-backend", { consistency: "strong" }); }
 
 const SENSORES_ALERTA = {
   temperatura:{nombre:"Temperatura",unidad:"°C",feed:"ws90",indice:0},
@@ -82,7 +82,7 @@ async function ensureFeed(feed){
   }
 }
 
-async function authRecord(){ return await STORE.get("auth/password",{type:"json"}); }
+async function authRecord(){ return await store().get("auth/password",{type:"json"}); }
 async function passwordFingerprint(){
   const rec=await authRecord();
   if(rec?.hash) return rec.hash;
@@ -126,7 +126,7 @@ async function cambiarClaveAccesoAgrospace(anterior,nueva,token){
     if(token) await verifyToken(token); else throw new Error("Contraseña actual incorrecta");
   }
   const salt=randomBytes(16).toString("hex");
-  await STORE.setJSON("auth/password",{salt,hash:sha256(salt+":"+String(nueva)),updated_at:new Date().toISOString()});
+  await store().setJSON("auth/password",{salt,hash:sha256(salt+":"+String(nueva)),updated_at:new Date().toISOString()});
   return {ok:true};
 }
 
@@ -152,14 +152,14 @@ function extraerValor(sensor,raw){
   if(sensor.wh51){ const p=String(raw||"").split(",")[0].split(":"); return Number(p[1]); }
   return Number(String(raw||"").split(",")[sensor.indice]);
 }
-async function obtenerConfigAlertasServidor(){ return await STORE.get("alerts/config",{type:"json"}); }
+async function obtenerConfigAlertasServidor(){ return await store().get("alerts/config",{type:"json"}); }
 export async function evaluarAlertasServidor(forzar=false){
   const config=await obtenerConfigAlertasServidor();
   const resultado={avisos:[],enviado:false,reglasActivas:0,datosValidos:0,error:""};
   if(!config){ resultado.error="No hay configuración guardada en Netlify."; return resultado; }
   try{ validarTelegram(config); }catch(e){ resultado.error=e.message; return resultado; }
-  const estado=(await STORE.get("alerts/state",{type:"json"}))||{};
-  const ultimos=(await STORE.get("alerts/last",{type:"json"}))||{};
+  const estado=(await store().get("alerts/state",{type:"json"}))||{};
+  const ultimos=(await store().get("alerts/last",{type:"json"}))||{};
   const cooldownMs=Math.max(1,Number(config.cooldown)||30)*60000;
   const ahora=Date.now();
   const feeds=[...new Set(Object.entries(config.reglas||{}).filter(([id,r])=>r?.activa&&SENSORES_ALERTA[id]).map(([id])=>SENSORES_ALERTA[id].feed))];
@@ -184,8 +184,8 @@ export async function evaluarAlertasServidor(forzar=false){
     }
     estado[id]=condicion;
   }
-  await STORE.setJSON("alerts/state",estado);
-  await STORE.setJSON("alerts/last",ultimos);
+  await store().setJSON("alerts/state",estado);
+  await store().setJSON("alerts/last",ultimos);
   if(resultado.avisos.length){
     const fecha=new Intl.DateTimeFormat("es-AR",{timeZone:"America/Argentina/Cordoba",dateStyle:"short",timeStyle:"medium"}).format(new Date());
     await enviarTelegram(config,"🚨 ALERTA AGROSPACE\n\n"+resultado.avisos.join("\n")+"\n\n"+fecha);
@@ -193,7 +193,7 @@ export async function evaluarAlertasServidor(forzar=false){
   }
   return resultado;
 }
-async function guardarConfigAlertasServidor(config){ validarConfigAlertas(config); await STORE.setJSON("alerts/config",config); return evaluarAlertasServidor(true); }
+async function guardarConfigAlertasServidor(config){ validarConfigAlertas(config); await store().setJSON("alerts/config",config); return evaluarAlertasServidor(true); }
 async function probarTelegramServidor(config){ return enviarTelegram(config,"✅ Agrospace: alertas del servidor configuradas correctamente."); }
 
 async function chatMeteoxServidor(){
