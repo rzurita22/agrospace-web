@@ -3135,6 +3135,37 @@ async function llamarAppsScript(funcion, ...args)
 }
 
 
+// ===== Telemetria directa via Netlify -> Adafruit IO =====
+// Las credenciales de Adafruit quedan en variables de entorno de Netlify.
+let cacheTelemetria = Object.create(null);
+let cacheTelemetriaTs = 0;
+
+async function adafruitApi(parametros)
+{
+    const query = new URLSearchParams(parametros);
+    const response = await fetch('/api/adafruit?' + query.toString(), {cache:'no-store'});
+    let payload;
+    try { payload = await response.json(); }
+    catch(_) { throw new Error('Netlify no devolvio JSON valido desde Adafruit'); }
+    if(!response.ok || !payload.ok) throw new Error(payload.error || `Adafruit HTTP ${response.status}`);
+    return payload;
+}
+
+async function refrescarBatchAdafruit(feeds)
+{
+    const payload = await adafruitApi({mode:'batch-latest', feeds:feeds.join(',')});
+    cacheTelemetria = payload.data || Object.create(null);
+    cacheTelemetriaTs = Date.now();
+    return cacheTelemetria;
+}
+
+function datoCacheadoAdafruit(feed, maxEdadMs=15000)
+{
+    if(Date.now() - cacheTelemetriaTs > maxEdadMs) return null;
+    return Object.prototype.hasOwnProperty.call(cacheTelemetria, feed) ? cacheTelemetria[feed] : null;
+}
+
+
 function configAlertasGuardada()
 {
     const base = {telegramToken:"", telegramChatId:"", cooldown:30, reglas:{}};
@@ -4032,57 +4063,27 @@ function refrescarEdadesSensores()
 
 async function leerFeed(feed)
 {
-    try
-    {
-        if(appsScriptDisponible()) {
-            const dato = await llamarAppsScript("leerUltimoDatoServidor", feed);
-            if(!dato) return "--";
-            actualizarEdadSensor(feed, dato.created_at);
-            return dato.value;
-        }
-        const response = await fetch(
-            "https://io.adafruit.com/api/v2/" + AIO_USERNAME + "/feeds/" + feed + "/data?limit=1",
-            {
-                method: "GET",
-                headers: {
-                    "X-AIO-Key": AIO_KEY,
-                    "Content-Type": "application/json"
-                }
-            });
-
-        if(!response.ok) return "--";
-
-        const datos = await response.json();
-        if(datos.length > 0) {
-            actualizarEdadSensor(feed, datos[0].created_at);
-            return datos[0].value;
-        }
-        return "--";
-    }
-    catch(error)
-    {
+    try {
+        const dato = await leerUltimoDato(feed);
+        if(!dato) return "--";
+        actualizarEdadSensor(feed, dato.created_at);
+        return dato.value;
+    } catch(error) {
         console.error("Error leyendo feed " + feed, error);
         return "--";
     }
 }
 
-async function leerUltimoDato(feed)
+async function leerUltimoDato(feed, forzar=false)
 {
-    if(appsScriptDisponible()) return llamarAppsScript("leerUltimoDatoServidor", feed);
-    const response = await fetch(
-        "https://io.adafruit.com/api/v2/" + AIO_USERNAME + "/feeds/" + feed + "/data?limit=1",
-        {
-            method: "GET",
-            headers: {
-                "X-AIO-Key": AIO_KEY,
-                "Content-Type": "application/json"
-            }
-        });
-
-    if(!response.ok) return null;
-    const datos = await response.json();
-    if(datos.length === 0) return null;
-    return datos[0];
+    if(!forzar) {
+        const cacheado = datoCacheadoAdafruit(feed);
+        if(cacheado) return cacheado;
+    }
+    const payload = await adafruitApi({mode:'latest', feed});
+    const dato = payload.data || null;
+    if(dato) cacheTelemetria[feed] = dato;
+    return dato;
 }
 
 
@@ -4218,8 +4219,14 @@ async function leerHistorico(feed, inicio, fin)
     let paginas =
         0;
 
-    if(appsScriptDisponible()) {
-        todos = await llamarAppsScript("leerHistoricoServidor", feed, inicio.toISOString(), fin.toISOString());
+    {
+        const payload = await adafruitApi({
+            mode:'history',
+            feed,
+            start:inicio.toISOString(),
+            end:fin.toISOString()
+        });
+        todos = Array.isArray(payload.data) ? payload.data : [];
         paginas = 60;
     }
 
@@ -5791,6 +5798,12 @@ function crearWindguruStrip(datosDireccion, periodo)
 
 async function actualizarDashboard()
 {
+    try {
+        await refrescarBatchAdafruit(["ws90","wh51","esp32","presion","wfc01","bomba"]);
+    } catch(error) {
+        console.error("No se pudo actualizar la telemetria en lote:", error);
+    }
+
     const datoWS90 = await leerUltimoDato("ws90");
     if(datoWS90) {
         registrarActualizacionEsp32(datoWS90.created_at);
@@ -5903,25 +5916,16 @@ async function actualizarDashboard()
     }
 
     await obtenerCaudal();
-    await actualizarAcumuladoCaudalHoy();
     await actualizarHoraDatos();
     actualizarIndicesAgrometeorologicos();
-    await evaluarAlertas();
 }
 
 async function obtenerCaudal()
 {
     try
     {
-        const response = appsScriptDisponible()
-            ? {ok:true, json:async () => { const d = await llamarAppsScript("leerUltimoDatoServidor", FEED_ESTADO); return d ? [d] : []; }}
-            : await fetch(`${URL_LEER_CAUDAL}?limit=1`, {
-            method:"GET",
-            headers:{
-                "X-AIO-Key":AIO_KEY,
-                "Content-Type":"application/json"
-            }
-        });
+        const d = await leerUltimoDato(FEED_ESTADO);
+        const response = {ok:true, json:async () => d ? [d] : []};
 
         if(response.ok)
         {
@@ -6266,16 +6270,8 @@ async function obtenerEstadoBomba()
 {
     try
     {
-        const response = appsScriptDisponible()
-            ? {ok:true, json:async () => { const d = await llamarAppsScript("leerUltimoDatoServidor", FEED_ESTADO); return d ? [d] : []; }}
-            : await fetch(`${URL_ESTADO}?limit=1&_=${Date.now()}`, {
-            method:"GET",
-            cache:"no-store",
-            headers:{
-                "X-AIO-Key":AIO_KEY,
-                "Content-Type":"application/json"
-            }
-        });
+        const d = await leerUltimoDato(FEED_ESTADO, true);
+        const response = {ok:true, json:async () => d ? [d] : []};
 
         if(!response.ok) return;
 
@@ -6622,11 +6618,14 @@ inicializarArrastreWidgets();
 aplicarSeleccionWidgets(widgetsVisiblesGuardados());
 actualizarDashboard();
 obtenerEstadoBomba();
+actualizarAcumuladoCaudalHoy();
 
-// Refresco general en segundo plano cada 10 segundos. El estado de la bomba
-// se mantiene mas rapido (5 s) para confirmar ordenes sin demoras.
+// Telemetria actual cada 10 s; estado de bomba cada 5 s.
+// El acumulado diario usa historico y se recalcula solo cada 60 s.
+// Las alertas periodicas quedan a cargo del trigger de Apps Script.
 setInterval(actualizarDashboard, 10000);
 setInterval(obtenerEstadoBomba, 5000);
+setInterval(actualizarAcumuladoCaudalHoy, 60000);
 setInterval(refrescarEdadesSensores, 10000);
 </script>
 
