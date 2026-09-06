@@ -3159,6 +3159,29 @@ async function refrescarBatchAdafruit(feeds)
     return cacheTelemetria;
 }
 
+async function completarFaltantesConAppsScript(feeds)
+{
+    const faltantes = feeds.filter(feed => !cacheTelemetria[feed]);
+    if(!faltantes.length) return;
+
+    const resultados = await Promise.all(
+        faltantes.map(async feed => {
+            try {
+                const dato = await llamarAppsScript("leerUltimoDatoServidor", feed);
+                return [feed, dato || null];
+            } catch(error) {
+                console.warn("Fallback Apps Script fallo para " + feed, error);
+                return [feed, null];
+            }
+        })
+    );
+
+    resultados.forEach(([feed,dato]) => {
+        if(dato) cacheTelemetria[feed] = dato;
+    });
+    cacheTelemetriaTs = Date.now();
+}
+
 function datoCacheadoAdafruit(feed, maxEdadMs=15000)
 {
     if(Date.now() - cacheTelemetriaTs > maxEdadMs) return null;
@@ -5818,13 +5841,17 @@ function crearWindguruStrip(datosDireccion, periodo)
 
 async function actualizarDashboard()
 {
+    const feedsDashboard = ["ws90","wh51","esp32","presion","wfc01"];
     try {
-        await refrescarBatchAdafruit(["ws90","wh51","esp32","presion","wfc01"]);
+        await refrescarBatchAdafruit(feedsDashboard);
     } catch(error) {
-        console.error("No se pudo actualizar la telemetria en lote:", error);
+        console.error("No se pudo actualizar la telemetria directa en lote:", error);
+        cacheTelemetria = Object.create(null);
     }
 
-    const datoWS90 = await leerUltimoDato("ws90");
+    await completarFaltantesConAppsScript(feedsDashboard);
+
+    const datoWS90 = cacheTelemetria.ws90 || null;
     if(datoWS90) {
         registrarActualizacionEsp32(datoWS90.created_at);
         actualizacionesEquipos.ws90 = datoWS90.created_at;
@@ -5866,7 +5893,7 @@ async function actualizarDashboard()
         }
     }
 
-    const datoMoisture = await leerUltimoDato("wh51");
+    const datoMoisture = cacheTelemetria.wh51 || null;
     if(datoMoisture) {
         registrarActualizacionEsp32(datoMoisture.created_at);
         actualizacionesEquipos.wh51 = datoMoisture.created_at;
@@ -5902,7 +5929,7 @@ async function actualizarDashboard()
     }
 
     {
-        const datoEsp32 = await leerUltimoDato("esp32");
+        const datoEsp32 = cacheTelemetria.esp32 || null;
         let presionCentral = NaN;
         if(datoEsp32) {
             try {
@@ -5926,7 +5953,7 @@ async function actualizarDashboard()
             } catch(error) { console.warn("Feed esp32 inválido", error); }
         }
         // Compatibilidad temporal con equipos V6 que aun publican presion sola.
-        const datoPresion = Number.isFinite(presionCentral) ? null : await leerUltimoDato("presion");
+        const datoPresion = Number.isFinite(presionCentral) ? null : (cacheTelemetria.presion || null);
         const fechaPresion = datoEsp32?.created_at || datoPresion?.created_at;
         if(!Number.isFinite(presionCentral) && datoPresion) presionCentral = Number(datoPresion.value);
         if(Number.isFinite(presionCentral) && document.getElementById("presionValor")) {
@@ -5944,7 +5971,7 @@ async function obtenerCaudal()
 {
     try
     {
-        const d = await leerUltimoDato(FEED_ESTADO);
+        const d = cacheTelemetria[FEED_ESTADO] || await leerUltimoDato(FEED_ESTADO);
         const response = {ok:true, json:async () => d ? [d] : []};
 
         if(response.ok)
