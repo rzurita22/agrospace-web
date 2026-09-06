@@ -93,7 +93,13 @@ export default async (request) => {
       const feeds = [...new Set((url.searchParams.get("feeds") || "")
         .split(",").map(x => x.trim()).filter(Boolean).map(validarFeed))];
       if (!feeds.length) throw new Error("No se indicaron feeds");
-      const resultados = await Promise.all(feeds.map(async feed => [feed, await latest(username,key,feed)]));
+      const resultados = await Promise.all(feeds.map(async feed => {
+        try {
+          return [feed, await latest(username,key,feed)];
+        } catch (_) {
+          return [feed, null];
+        }
+      }));
       return json({ok:true,data:Object.fromEntries(resultados)}, 200, "no-store");
     }
 
