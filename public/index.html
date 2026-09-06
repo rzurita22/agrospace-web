@@ -2620,7 +2620,7 @@ async function enviarComando(valor)
     {
         let response = null;
         if(appsScriptDisponible()) {
-            await llamarAppsScript("publicarDatoDashboardServidor", FEED_COMANDO, comando);
+            await llamarAppsScript("publicarDatoDashboardServidor", FEED_COMANDO, comando, tokenAccesoAgrospace);
         } else {
             response = await fetch(URL_COMANDO, {
                 method:"POST",
@@ -3333,7 +3333,7 @@ function cerrarConfiguracionCentral(){
 }
 
 async function asegurarFeedAdafruit(usuario, clave, feed){
-    if(appsScriptDisponible()) return llamarAppsScript("asegurarFeedAdafruitServidor", feed);
+    if(appsScriptDisponible()) return llamarAppsScript("asegurarFeedAdafruitServidor", feed, tokenAccesoAgrospace);
     const baseFeeds = "https://io.adafruit.com/api/v2/" + encodeURIComponent(usuario) + "/feeds";
     const existente = await fetch(baseFeeds + "/" + encodeURIComponent(feed), {
         cache:"no-store", headers:{"X-AIO-Key":clave}
